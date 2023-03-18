@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.17;
 
-import "./IERC20.sol";
+import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract CrowdFund {
+    event CampaignLaunched(
+        address indexed creator,
+        uint256 id,
+        uint256 goal,
+        uint32 indexed startAt,
+        uint32 indexed endAt
+    );
+    event CampaignCancelled(uint256 id);
+
     struct Campaign {
         address creator;
         uint256 goal;
+        uint256 pledged;
         uint32 startAt;
         uint32 endAt;
         bool isClaimed;
@@ -15,7 +25,7 @@ contract CrowdFund {
     /// @notice Token used in a campaign
     IERC20 public immutable token;
     /// @notice Unique id for each campaign
-    uint256 public count;
+    uint256 public campaignCount;
     /// @notice id of a campaign to the campaign struct
     mapping(uint256 => Campaign) public campaigns;
     /// @notice amount of tokens a user has pledged to a specific campaign
@@ -36,12 +46,43 @@ contract CrowdFund {
         uint256 _goalAmount,
         uint32 _startAt,
         uint32 _endAt
-    ) external {}
+    ) external {
+        require(_startAt >= block.timestamp, "start at < now");
+        require(_endAt >= _startAt, "end at < start at");
+        require(_endAt <= block.timestamp + 90 days, "end at > max duration");
+
+        campaignCount++;
+        campaigns[campaignCount] = Campaign({
+            creator: msg.sender,
+            goal: _goalAmount,
+            pledged: 0,
+            startAt: _startAt,
+            endAt: _endAt,
+            isClaimed: false
+        });
+
+        emit CampaignLaunched(
+            msg.sender,
+            campaignCount,
+            _goalAmount,
+            _startAt,
+            _endAt
+        );
+    }
 
     /// @notice Cancel the campaign if it has not started
     /// @dev Only available to the campaign creator
     /// @param _id id of a campaign
-    function cancelCampaign(uint256 _id) external {}
+    function cancelCampaign(uint256 _id) external {
+        Campaign memory campaign = campaigns[_id];
+
+        require(msg.sender == campaign.creator, "not creator");
+        require(block.timestamp < campaign.startAt, "started");
+
+        delete campaigns[_id];
+
+        emit CampaignCancelled(_id);
+    }
 
     /// @notice Pledge an amonut of tokens to a specific campaign
     /// @dev Tokens are transferred to this contract
