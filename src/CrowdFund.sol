@@ -12,6 +12,11 @@ contract CrowdFund {
         uint32 indexed endAt
     );
     event CampaignCancelled(uint256 id);
+    event Pledged(
+        uint256 indexed id,
+        address indexed pledger,
+        uint256 indexed amount
+    );
 
     struct Campaign {
         address creator;
@@ -88,7 +93,18 @@ contract CrowdFund {
     /// @dev Tokens are transferred to this contract
     /// @param _id id of a campaign
     /// @param _amount the amount of tokens a user wants to pledge
-    function pledge(uint256 _id, uint256 _amount) external {}
+    function pledge(uint256 _id, uint256 _amount) external {
+        Campaign storage campaign = campaigns[_id];
+        require(block.timestamp >= campaign.startAt, "not started");
+        require(block.timestamp <= campaign.endAt, "ended");
+
+        campaign.pledged += _amount;
+        pledgedAmount[_id][msg.sender] += _amount;
+
+        token.transferFrom(msg.sender, address(this), _amount);
+
+        emit Pledged(_id, msg.sender, _amount);
+    }
 
     /// @notice Unpledge an amount of tokens from a specific campaign
     /// @dev Tokens are transferred to this contract

@@ -34,6 +34,7 @@ contract LaunchCampaign is Test {
             uint32(block.timestamp),
             uint32(block.timestamp) + 7 days
         );
+
         (
             address creator,
             uint256 goal,
@@ -95,13 +96,28 @@ contract CancelCampaign is Test {
         crowdFund.launchCampaign(
             1000,
             uint32(block.timestamp) + 1 days, // start in 1 day from now
-            uint32(block.timestamp) + 7 days // end in 8 days from now
+            uint32(block.timestamp) + 7 days // end in 7 days from now
         );
     }
 
     function test_CancelCampaign() public {
         launchCampaign();
         crowdFund.cancelCampaign(1);
+        (
+            address creator,
+            uint256 goal,
+            uint256 pledged,
+            uint32 startAt,
+            uint32 endAt,
+            bool isClaimed
+        ) = crowdFund.campaigns(1);
+
+        assertEq(creator, address(0));
+        assertEq(goal, 0);
+        assertEq(pledged, 0);
+        assertEq(startAt, 0);
+        assertEq(endAt, 0);
+        assertEq(isClaimed, false);
     }
 
     function test_RevertIfNotCreator() public {
@@ -129,13 +145,47 @@ contract Pledge is Test {
         crowdFund = new CrowdFund(address(token));
 
         vm.label(alice, "Alice");
+        deal(address(token), alice, 1000);
     }
 
     function launchCampaign() public {
         crowdFund.launchCampaign(
             1000,
-            uint32(block.timestamp),
-            uint32(block.timestamp) + 7 days
+            uint32(block.timestamp) + 1 days, // start in 1 day from now
+            uint32(block.timestamp) + 7 days // end in 7 days from now
         );
+    }
+
+    function testFuzz_Pledge(uint256 amount) public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.assume(amount <= 1000);
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 1000);
+        crowdFund.pledge(1, amount);
+        vm.stopPrank();
+        assertEq(crowdFund.pledgedAmount(1, address(alice)), amount);
+    }
+
+    function test_RevertIfCampaignNotStarted() public {
+        launchCampaign();
+
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 1000);
+        vm.expectRevert("not started");
+        crowdFund.pledge(1, 100);
+        assertEq(crowdFund.pledgedAmount(1, address(alice)), 0);
+    }
+
+    function test_RevertIfCampaignEnded() public {
+        launchCampaign();
+        skip(8 days);
+
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 1000);
+        vm.expectRevert("ended");
+        crowdFund.pledge(1, 100);
+        assertEq(crowdFund.pledgedAmount(1, address(alice)), 0);
     }
 }
