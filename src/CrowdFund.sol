@@ -11,8 +11,19 @@ contract CrowdFund {
         uint32 indexed startAt,
         uint32 indexed endAt
     );
-    event CampaignCancelled(uint256 id);
+    event CampaignCancelled(uint256 indexed id);
     event Pledged(
+        uint256 indexed id,
+        address indexed pledger,
+        uint256 indexed amount
+    );
+    event Unpledged(
+        uint256 indexed id,
+        address indexed pledger,
+        uint256 indexed amount
+    );
+    event CampaignClaimed(uint256 indexed id);
+    event Refund(
         uint256 indexed id,
         address indexed pledger,
         uint256 indexed amount
@@ -95,6 +106,7 @@ contract CrowdFund {
     /// @param _amount the amount of tokens a user wants to pledge
     function pledge(uint256 _id, uint256 _amount) external {
         Campaign storage campaign = campaigns[_id];
+
         require(block.timestamp >= campaign.startAt, "not started");
         require(block.timestamp <= campaign.endAt, "ended");
 
@@ -110,15 +122,50 @@ contract CrowdFund {
     /// @dev Tokens are transferred to this contract
     /// @param _id id of a campaign
     /// @param _amount the amount of tokens a user wants to unpledge
-    function unpledge(uint256 _id, uint256 _amount) external {}
+    function unpledge(uint256 _id, uint256 _amount) external {
+        Campaign storage campaign = campaigns[_id];
+
+        require(block.timestamp >= campaign.startAt, "not started");
+        require(block.timestamp <= campaign.endAt, "ended");
+
+        campaign.pledged -= _amount;
+        pledgedAmount[_id][msg.sender] -= _amount;
+
+        token.transfer(msg.sender, _amount);
+
+        emit Unpledged(_id, msg.sender, _amount);
+    }
 
     /// @notice Claim all the pledged tokens
     /// @dev Callable only if the `_goalAmount` is met
     /// @param _id id of a campaign
-    function claim(uint256 _id) external {}
+    function claim(uint256 _id) external {
+        Campaign storage campaign = campaigns[_id];
+
+        require(msg.sender == campaign.creator, "not creator");
+        require(block.timestamp > campaign.endAt, "not ended");
+        require(campaign.pledged >= campaign.goal, "pledged < goal");
+        require(!campaign.isClaimed, "claimed");
+
+        campaign.isClaimed = true;
+        token.transfer(msg.sender, campaign.pledged);
+
+        emit CampaignClaimed(_id);
+    }
 
     /// @notice Refund the amount of tokens pledged by a user
     /// @dev Callable if the `_goalAmount` was not met
     /// @param _id id of a campaign
-    function refund(uint256 _id) external {}
+    function refund(uint256 _id) external {
+        Campaign storage campaign = campaigns[_id];
+
+        require(block.timestamp > campaign.endAt, "not ended");
+        require(campaign.pledged < campaign.goal, "pledged >= goal");
+
+        uint balance = pledgedAmount[_id][msg.sender];
+        pledgedAmount[_id][msg.sender] = 0;
+        token.transfer(msg.sender, balance);
+
+        emit Refund(_id, msg.sender, balance);
+    }
 }
