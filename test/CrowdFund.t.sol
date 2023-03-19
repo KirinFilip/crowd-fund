@@ -189,3 +189,200 @@ contract Pledge is Test {
         assertEq(crowdFund.pledgedAmount(1, address(alice)), 0);
     }
 }
+
+contract Unpledge is Test {
+    MyERC20 public token;
+    CrowdFund public crowdFund;
+    address alice = vm.addr(1);
+
+    function setUp() public {
+        token = new MyERC20();
+        crowdFund = new CrowdFund(address(token));
+
+        vm.label(alice, "Alice");
+        deal(address(token), alice, 1000);
+    }
+
+    function launchCampaign() public {
+        crowdFund.launchCampaign(
+            1000,
+            uint32(block.timestamp) + 1 days, // start in 1 day from now
+            uint32(block.timestamp) + 7 days // end in 7 days from now
+        );
+    }
+
+    function testFuzz_Unpledge(uint256 amount) public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.assume(amount <= 1000);
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 1000);
+        crowdFund.pledge(1, amount);
+        crowdFund.unpledge(1, amount);
+        vm.stopPrank();
+        assertEq(crowdFund.pledgedAmount(1, address(alice)), 0);
+    }
+
+    function test_RevertIfCampaignEnded() public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 1000);
+        crowdFund.pledge(1, 100);
+        skip(7 days);
+        vm.expectRevert("ended");
+        crowdFund.unpledge(1, 100);
+        vm.stopPrank();
+    }
+}
+
+contract Claim is Test {
+    MyERC20 public token;
+    CrowdFund public crowdFund;
+    address alice = vm.addr(1);
+
+    function setUp() public {
+        token = new MyERC20();
+        crowdFund = new CrowdFund(address(token));
+
+        vm.label(alice, "Alice");
+        deal(address(token), alice, 10000);
+    }
+
+    function launchCampaign() public {
+        crowdFund.launchCampaign(
+            1000,
+            uint32(block.timestamp) + 1 days, // start in 1 day from now
+            uint32(block.timestamp) + 7 days // end in 7 days from now
+        );
+    }
+
+    function testFuzz_Claim(uint256 amount) public {
+        launchCampaign();
+        skip(1 days);
+
+        amount = bound(amount, 1000, 10000);
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 10000);
+        crowdFund.pledge(1, amount);
+        vm.stopPrank();
+        skip(7 days);
+        crowdFund.claim(1);
+        assertEq(token.balanceOf(address(this)), amount);
+    }
+
+    function test_RevertIfClaimerNotCreator() public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 10000);
+        crowdFund.pledge(1, 1000);
+        vm.stopPrank();
+        skip(7 days);
+        vm.prank(alice);
+        vm.expectRevert("not creator");
+        crowdFund.claim(1);
+    }
+
+    function test_RevertIfCampaignNotEnded() public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 10000);
+        crowdFund.pledge(1, 1000);
+        vm.stopPrank();
+        vm.expectRevert("not ended");
+        crowdFund.claim(1);
+    }
+
+    function test_RevertIfNotEnoughPledged() public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 10000);
+        crowdFund.pledge(1, 100);
+        vm.stopPrank();
+        skip(7 days);
+        vm.expectRevert("pledged < goal");
+        crowdFund.claim(1);
+    }
+
+    function test_RevertIfAlreadyClaimed() public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 10000);
+        crowdFund.pledge(1, 1000);
+        vm.stopPrank();
+        skip(7 days);
+        crowdFund.claim(1);
+        assertEq(token.balanceOf(address(this)), 1000);
+        vm.expectRevert("claimed");
+        crowdFund.claim(1);
+    }
+}
+
+contract Refund is Test {
+    MyERC20 public token;
+    CrowdFund public crowdFund;
+    address alice = vm.addr(1);
+
+    function setUp() public {
+        token = new MyERC20();
+        crowdFund = new CrowdFund(address(token));
+
+        vm.label(alice, "Alice");
+        deal(address(token), alice, 10000);
+    }
+
+    function launchCampaign() public {
+        crowdFund.launchCampaign(
+            1000,
+            uint32(block.timestamp) + 1 days, // start in 1 day from now
+            uint32(block.timestamp) + 7 days // end in 7 days from now
+        );
+    }
+
+    function testFuzz_Refund(uint256 amount) public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.assume(amount < 1000);
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 1000);
+        crowdFund.pledge(1, amount);
+        skip(7 days);
+        crowdFund.refund(1);
+        assertEq(token.balanceOf(address(alice)), 10000);
+    }
+
+    function test_RevertIfCampaignNotEnded() public {
+        launchCampaign();
+        skip(1 days);
+
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 1000);
+        crowdFund.pledge(1, 100);
+        vm.expectRevert("not ended");
+        crowdFund.refund(1);
+    }
+
+    function test_RevertIfPledgedGoalMet(uint256 amount) public {
+        launchCampaign();
+        skip(1 days);
+
+        amount = bound(amount, 1000, 10000);
+        vm.startPrank(alice);
+        token.approve(address(crowdFund), 10000);
+        crowdFund.pledge(1, amount);
+        skip(7 days);
+        vm.expectRevert("pledged >= goal");
+        crowdFund.refund(1);
+    }
+}
