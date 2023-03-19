@@ -373,7 +373,7 @@ contract Refund is Test {
         crowdFund.refund(1);
     }
 
-    function test_RevertIfPledgedGoalMet(uint256 amount) public {
+    function testFuzz_RevertIfPledgedGoalMet(uint256 amount) public {
         launchCampaign();
         skip(1 days);
 
